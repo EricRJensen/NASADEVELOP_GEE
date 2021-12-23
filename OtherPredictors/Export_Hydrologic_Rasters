@@ -1,0 +1,166 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//===============
+// Compiling Hydrologic assets
+//===============
+// Date Created: July 2020
+
+// Combines hydrology assets generated in Rscript Whitebox_demo.Rmd (5_RScripts>Hydrology 
+// in RMD Partner handoff) creating one image for each variable,
+// combines all variables into one image, resamples and exports raster
+// to Drive
+
+// Parameters
+//-------------
+// Hydrology assets located in Colorado Node RMD assets folder, pathways will
+// need to be updated. 
+//
+//Contact
+//---------
+// Lauren Kremer
+
+// E-mail: lekokremer@gmail.com
+
+
+
+// Load in paired index  
+var twi_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_topo_wetness_indx')
+var twi_north = ee.Image('users/laurenkremer/Bobcat_topo_wetness_indx')
+// Combine paired index into an image collection 
+var twi_IC =  ee.ImageCollection([twi_south, twi_north])
+print(twi_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var twi_I = twi_IC.mosaic().rename('twi')
+print(twi_I)
+// Visualize if you want to
+Map.addLayer(twi_I, {min:-6.5, max:-4.5}, 'twi')
+
+// Load in paired index  
+var d8_pntr_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_d8_pntr')
+var d8_pntr_north = ee.Image('users/laurenkremer/Bobcat_d8_pntr')
+// Combine paired index into an image collection 
+var d8_pntr_IC =  ee.ImageCollection([d8_pntr_south, d8_pntr_north])
+print(d8_pntr_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var d8_pntr_I = d8_pntr_IC.mosaic().rename('d8_pntr')
+print(d8_pntr_I)
+// Visualize if you want to
+Map.addLayer(d8_pntr_I, {min:0, max:120}, 'd8_pntr')
+
+
+// Load in paired index  
+var dist_to_stream_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_dist_to_streams')
+var dist_to_stream_north = ee.Image('users/laurenkremer/Bobcat_dist_to_streams')
+// Combine paired index into an image collection 
+var dist_to_stream_IC =  ee.ImageCollection([dist_to_stream_south, dist_to_stream_north])
+print(dist_to_stream_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var dist_to_stream_I = dist_to_stream_IC.mosaic().rename('dist_to_stream')
+print(dist_to_stream_I)
+// Visualize if you want to
+Map.addLayer(dist_to_stream_I, {min:0, max:0.007}, 'dist_to_stream')
+
+// Load in paired index  
+var elev_dev_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_elev_dev')
+var elev_dev_north = ee.Image('users/laurenkremer/Bobcat_elev_dev')
+// Combine paired index into an image collection 
+var elev_dev_IC =  ee.ImageCollection([elev_dev_south, elev_dev_north])
+print(elev_dev_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var elev_dev_I = elev_dev_IC.mosaic().rename('elev_dev')
+print(elev_dev_I)
+// Visualize if you want to
+Map.addLayer(elev_dev_I, {min:-2, max:-2}, 'elev_dev')
+
+// Load in paired index  
+var logT_flow_accum_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_logT_flow_accum')
+var logT_flow_accum_north = ee.Image('users/laurenkremer/Bobcat_logT_flow_accum')
+// Combine paired index into an image collection 
+var logT_flow_accum_IC =  ee.ImageCollection([logT_flow_accum_south, logT_flow_accum_north])
+print(logT_flow_accum_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var logT_flow_accum_I = logT_flow_accum_IC.mosaic().rename('logT_flow_accum')
+print(logT_flow_accum_I)
+// Visualize if you want to
+Map.addLayer(logT_flow_accum_I, {min:-18, max:-6}, 'logT_flow_accum')
+
+// Load in paired index  
+var ruggedness_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_ruggedness')
+var ruggedness_north = ee.Image('users/laurenkremer/Bobcat_ruggedness')
+// Combine paired index into an image collection 
+var ruggedness_IC =  ee.ImageCollection([ruggedness_south, ruggedness_north])
+print(ruggedness_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var ruggedness_I = ruggedness_IC.mosaic().rename('ruggedness')
+print(ruggedness_I)
+// Visualize if you want to
+Map.addLayer(ruggedness_I, {min:-0, max:20}, 'ruggedness')
+
+// Load in paired index  
+var slope_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_slope')
+var slope_north = ee.Image('users/laurenkremer/Bobcat_slope')
+// Combine paired index into an image collection 
+var slope_IC =  ee.ImageCollection([slope_south, slope_north])
+print(slope_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var slope_I = slope_IC.mosaic().rename('slope')
+print(slope_I)
+// Visualize if you want to
+Map.addLayer(slope_I, {min:10, max:60}, 'slope')
+
+// Load in paired index  
+var streamnetwork_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_streamnetwork')
+var streamnetwork_north = ee.Image('users/laurenkremer/Bobcat_streams')
+// Combine paired index into an image collection 
+var streamnetwork_IC =  ee.ImageCollection([streamnetwork_south, streamnetwork_north])
+print(streamnetwork_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var streamnetwork_I = streamnetwork_IC.mosaic().rename('streams')
+print(streamnetwork_I)
+// Visualize if you want to
+Map.addLayer(streamnetwork_I, {min:-1, max:10}, 'streams')
+
+// Load in paired index  
+var elevabovestrm_south = ee.Image('users/laurenkremer/Hymn_BuffC_HighM_elevabovestrm')
+var elevabovestrm_north = ee.Image('users/laurenkremer/Bobcat_elevabovestrm')
+// Combine paired index into an image collection 
+var  elevabovestrm_IC =  ee.ImageCollection([elevabovestrm_south, elevabovestrm_north])
+print(elevabovestrm_IC)
+// Mosaic the image collection into a single image and rename with the specific index name
+var elevabovestrm_I = elevabovestrm_IC.mosaic().rename('elevabovestrm')
+print(elevabovestrm_I)
+// Visualize if you want to
+Map.addLayer(elevabovestrm_I, {min:0, max:400}, 'elevabovestrm')
+
+
+// Combine all of the images
+var hydroAll = twi_I.addBands(ruggedness_I).addBands(elev_dev_I).addBands(logT_flow_accum_I).addBands(d8_pntr_I).addBands(dist_to_stream_I).addBands(elevabovestrm_I).addBands(slope_I)//.addBands(streamnetwork_I)
+print(hydroAll)
+
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of landsat harmonized image
+var hydroAll_resample = hydroAll.reproject(LS_proj); //reproject defaults to nn
+
+var fires = ee.FeatureCollection("users/zackrwerner/new_perimeters");
+
+var namelist = hydroAll_resample.bandNames().getInfo();
+
+print(namelist,'namelist');
+
+//print(hydroAll_resample.select(namelist[0]),'test0');
+//print(hydroAll_resample.select(namelist[1]),'test1');
+//print(hydroAll_resample.select(namelist[6]),'test6');
+
+for (var i = 0; i < 8; i++) {
+  // Get image
+  var img = hydroAll_resample.select(namelist[i]);
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i],
+      scale: 30,
+      region: fires});}
+
+

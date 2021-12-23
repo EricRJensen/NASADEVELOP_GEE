@@ -1,0 +1,228 @@
+
+// ===============
+// Visualize_Landsat_TimeSeries
+// ===============
+
+// Date Created: July 2020
+
+// This script is simply useful for producing charts of time-series landsat data.
+
+
+// Parameters
+// -------------
+// 1. Fires perimeters to clip and subset by
+
+
+// Contact
+// ---------
+// Name(s): Eric Jensen
+// E-mail(s): ericjensen41@gmail.com
+
+
+
+
+
+var fires = ee.FeatureCollection("users/zackrwerner/new_perimeters"),
+    l8 = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR"),
+    states = ee.FeatureCollection("TIGER/2018/States"),
+    l5 = ee.ImageCollection("LANDSAT/LT05/C01/T1_SR"),
+    l7 = ee.ImageCollection("LANDSAT/LE07/C01/T1_SR"), 
+    FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints");
+
+// -------------------------------------------------------------------------------------
+// ------------------------- Preprocess Landsat Data -----------------------------------
+// -------------------------------------------------------------------------------------
+
+// Import Colorado boundary to filter bounds by while processing
+var Colorado = states.filterMetadata("NAME", 'equals', 'Colorado') 
+
+// ---------------- CLOUD MASKING --------------------------------
+
+// Function to mask clouds for Landsat 5 and 7
+// Keep only clear and low confidence cloud pixels
+// Mask fill,  water, cloud shadow, snow, and medium and high cloud confidence clouds
+// Link to Document: https://prd-wret.s3-us-west-2.amazonaws.com/assets/palladium/production/atoms/files/LSDS-1370_L4-7_SurfaceReflectance-LEDAPS_ProductGuide-v2.pdf
+var maskL57 = function(image){
+  var fillBitMask = 1
+  var clearBitMask = 1 << 1
+  var waterBitMask = 1 << 2
+  var cloudShadowBitMask = 1 << 3
+  var snowBitMask = 1 << 4
+  var cloudConfBitMask = 1 << 7
+  
+  var ls_bands = ee.List(['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
+  var pixelqa_name = 'pixel_qa'
+  
+  // Get the pixel QA band
+  var pixelqa = image.select(pixelqa_name) 
+  
+  var mask = pixelqa.bitwiseAnd(fillBitMask).eq(0)
+        .and(pixelqa.bitwiseAnd(clearBitMask).neq(0))
+        .and(pixelqa.bitwiseAnd(waterBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudShadowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(snowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudConfBitMask).eq(0))      
+              
+// Return the masked image (excluding the PIXELQA and STQA layers)
+  return image.updateMask(mask).select(ls_bands)  }
+
+// Apply cloud mask function to landsat 5 and 7 image collections 
+var l5_masked = l5.map(maskL57).filterBounds(Colorado)
+var l7_masked = l7.map(maskL57).filterBounds(Colorado)
+
+
+// Function to mask clouds for Landsat 8
+// Keep only clear and low confidence cloud pixels and low confidence cirrus pixels
+// Mask fill,  water, cloud shadow, snow, terrain occlusion, medium and high cirrus confidence, and medium and high cloud confidence clouds
+// Link to Document: https://prd-wret.s3-us-west-2.amazonaws.com/assets/palladium/production/atoms/files/LSDS-1368_L8_SurfaceReflectanceCode-LASRC_ProductGuide-v2.pdf
+var maskL8 = function(image){
+  var fillBitMask = 1
+  var clearBitMask = 1 << 1
+  var waterBitMask = 1 << 2
+  var cloudShadowBitMask = 1 << 3
+  var snowBitMask = 1 << 4
+  var cloudConfBitMask = 1 << 7
+  var cirrusConfBitMask = 1 << 9
+  var occlusionBitMask = 1 << 10
+  
+  var ls_bands = ee.List(['B2', 'B3', 'B4', 'B5', 'B6', 'B7'])
+  var pixelqa_name = 'pixel_qa'
+  
+  // Get the pixel QA band
+  var pixelqa = image.select(pixelqa_name)
+  
+  var mask = pixelqa.bitwiseAnd(fillBitMask).eq(0)
+        .and(pixelqa.bitwiseAnd(clearBitMask).neq(0))
+        .and(pixelqa.bitwiseAnd(waterBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudShadowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(snowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudConfBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cirrusConfBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(occlusionBitMask).eq(0))     
+              
+// Return the masked image (excluding the PIXELQA and STQA layers)
+  return image.updateMask(mask).select(ls_bands)  }
+
+// Apply cloud mask function to landsat 5 and 7 image collections   
+var l8_masked = l8.map(maskL8).filterBounds(Colorado)
+
+
+// --------------- HARMONIZATION BETWEEN OLI BANDS TO TM AND ETM ------------------
+
+// Need to assess whether we need to harmonize of simply match bands
+// Function to match OLI bands to ETM and TM
+// var matchBands = function(image){
+//   return image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7'], ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])  }
+// var l8_matched = l8_masked.map(matchBands)
+
+// Function to harmonize bands to ETM and TM
+// slope and intercept citation: Roy, D.P., Kovalskyy, V., Zhang, H.K., Vermote, E.F., Yan, L., Kumar, S.S, Egorov, A., 2016, Characterization of Landsat-7 to Landsat-8 reflective wavelength and normalized difference vegetation index continuity, Remote Sensing of Environment, 185, 57-70.(http://dx.doi.org/10.1016/j.rse.2015.12.024); Table 2 - reduced major axis (RMA) regression coefficients
+var harmonizationRoy = function(oli) {
+  var slopes = ee.Image.constant([0.9785, 0.9542, 0.9825, 1.0073, 1.0171, 0.9949]);        // create an image of slopes per band for L8 TO L7 regression line - David Roy
+  var itcp = ee.Image.constant([-0.0095, -0.0016, -0.0022, -0.0021, -0.0030, 0.0029]);     // create an image of y-intercepts per band for L8 TO L7 regression line - David Roy
+  var y = oli.select(['B2','B3','B4','B5','B6','B7'],['B1', 'B2', 'B3', 'B4', 'B5', 'B7']) // select OLI bands 2-7 and rename them to match L7 band names
+             .resample('bicubic')                                                          // ...resample the L8 bands using bicubic
+             .subtract(itcp.multiply(10000)).divide(slopes)                                // ...multiply the y-intercept bands by 10000 to match the scale of the L7 bands then apply the line equation - subtract the intercept and divide by the slope
+             .set('system:time_start', oli.get('system:time_start'));                      // ...set the output system:time_start metadata to the input image time_start otherwise it is null
+  return y.toShort();                                                                       // return the image as short to match the type of the other data
+};
+    
+var l8_harmonized = l8_masked.map(harmonizationRoy);
+
+// Merge Landsat 5, 7, and 8 into single Image Collection
+var l578 = l5_masked.merge(l7_masked).merge(l8_harmonized);
+
+
+// --------------------- ADD BANDS FOR INDICES OF INTEREST ------------------------------
+// NBR
+var nbrTransform = function(img) {
+    var nbr = img.normalizedDifference(['B4', 'B7']) // calculate normalized difference of B4 and B7. orig was flipped: ['B7', 'B4']
+                 .multiply(1000) // scale results by 1000
+                 .select([0], ['NBR']) // name the band
+                 .set('system:time_start', img.get('system:time_start'));
+    return img.addBands(nbr);
+};
+
+// NDVI
+var ndviTransform = function(img){ 
+  var ndvi = img.normalizedDifference(['B4', 'B3']) // calculate normalized dif between band 4 and band 3 (B4-B3/B4_B3)
+                .multiply(1000) // scale results by 1000
+                .select([0], ['NDVI']) // name the band
+                .set('system:time_start', img.get('system:time_start'));
+  return img.addBands(ndvi);
+};
+
+
+// TASSELLED CAP
+var tcTransform = function(img){ 
+  var b = ee.Image(img).select(["B1", "B2", "B3", "B4", "B5", "B7"]); // select the image bands
+  var brt_coeffs = ee.Image.constant([0.2043, 0.4158, 0.5524, 0.5741, 0.3124, 0.2303]); // set brt coeffs - make an image object from a list of values - each of list element represents a band
+  var grn_coeffs = ee.Image.constant([-0.1603, -0.2819, -0.4934, 0.7940, -0.0002, -0.1446]); // set grn coeffs - make an image object from a list of values - each of list element represents a band
+  var wet_coeffs = ee.Image.constant([0.0315, 0.2021, 0.3102, 0.1594, -0.6806, -0.6109]); // set wet coeffs - make an image object from a list of values - each of list element represents a band
+  
+  var sum = ee.Reducer.sum(); // create a sum reducer to be applyed in the next steps of summing the TC-coef-weighted bands
+  var brightness = b.multiply(brt_coeffs).reduce(sum); // multiply the image bands by the brt coef and then sum the bands
+  var greenness = b.multiply(grn_coeffs).reduce(sum); // multiply the image bands by the grn coef and then sum the bands
+  var wetness = b.multiply(wet_coeffs).reduce(sum); // multiply the image bands by the wet coef and then sum the bands
+  var angle = (greenness.divide(brightness)).atan().multiply(180/Math.PI).multiply(100);
+  var tc = brightness.addBands(greenness)
+                     .addBands(wetness)
+                     .addBands(angle)
+                     .select([0,1,2,3], ['TCB','TCG','TCW','TCA']) //stack TCG and TCW behind TCB with .addBands, use select() to name the bands
+                     .set('system:time_start', img.get('system:time_start'));
+  var img_wTC = img.addBands(tc)
+  return img_wTC;
+};
+
+// EVI
+var eviTransform = function(img){
+    var evi = img.expression(
+    '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
+      'NIR': img.select('B4').multiply(0.0001),
+      'RED': img.select('B3').multiply(0.0001),
+      'BLUE': img.select('B1').multiply(0.0001) }).rename('EVI').multiply(1000)
+  return img.addBands(evi) }
+
+// Select Hayman Fire Geometry
+var Hayman = fires.filterMetadata('Fire_Name', 'equals', 'HAYMAN').geometry()
+
+// Map functions to Landsat image collection
+var l578 = l578.map(nbrTransform).map(ndviTransform).map(tcTransform).map(eviTransform)
+                .select(['NDVI','NBR','TCG'])
+                .filterBounds(Hayman)
+                
+
+
+
+// Define time period of interest // consider how to do this for multiple time periods if desirable
+var yearList = ee.List.sequence(1985, 2019, 1)
+
+
+// Create annual composite image collections for mean, median, and maximum for the indices of interest
+// Removed mean reducer to prevent memory error and because it was probably redundant with median
+var haym_ts_IC = ee.ImageCollection(yearList.map(function(year){
+ var yearCol = l578.filterDate(ee.String(ee.Number(year).toInt()).cat('-09-01'), ee.String(ee.Number(year).toInt()).cat('-10-15'));
+ var yearMedian = yearCol.reduce(ee.Reducer.median()).clip(Hayman) ; // Median composites// Add all bands and clip
+ return yearMedian.set({'year': year});
+}));
+
+print(haym_ts_IC)
+
+Map.addLayer(haym_ts_IC.first().select('NDVI_median'), {min: -100, max: 1000}, 'NDVI',false)
+
+
+var ts_chart = ui.Chart.image.series({
+  imageCollection: haym_ts_IC,
+  region: Hayman, 
+  reducer: ee.Reducer.mean(),
+  scale: 30,
+  xProperty: 'year'
+})
+
+print(ts_chart)
+
+// Export.image.toDrive({
+//   image: ts_chart,
+//   description: 'Hayman_ts_chart',
+//   scale: 30
+// });

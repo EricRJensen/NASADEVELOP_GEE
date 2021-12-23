@@ -1,0 +1,60 @@
+
+// ===============
+// Produce_FireRaster
+// ===============
+
+// Date Created: July 2020
+
+// Produce a fire raster with the identify of each fire corresponding to an integer for use in suitability modeling.
+
+// Parameters
+// -------------
+// 1. Fire Perimeters
+
+// Contact
+// ---------
+// Name(s): Eric Jensen
+// E-mail(s): ericjensen41@gmail.com
+
+
+
+var fires = ee.FeatureCollection("users/zackrwerner/new_perimeters")
+
+var BufCrk = fires.filterMetadata('Fire_Name', 'equals', 'BUFFALO CREEK').geometry()
+var OneConst = ee.Image.constant(1).clip(BufCrk).toFloat()
+print(OneConst)
+Map.addLayer(OneConst)
+
+var Bobcat = fires.filterMetadata('Fire_Name', 'equals', 'BOBCAT').geometry()
+var TwoConst = ee.Image.constant(2).clip(Bobcat).toFloat()
+print(TwoConst)
+Map.addLayer(TwoConst)
+
+var HiMead = fires.filterMetadata('Fire_Name', 'equals', 'HIGH MEADOWS').geometry()
+var ThrConst = ee.Image.constant(3).clip(HiMead).toFloat()
+print(ThrConst)
+Map.addLayer(ThrConst)
+
+var Hayman = fires.filterMetadata('Fire_Name', 'equals', 'HAYMAN').geometry()
+var FouConst = ee.Image.constant(4).clip(Hayman).toFloat()
+print(FouConst)
+Map.addLayer(FouConst)
+
+var FireRast = ee.ImageCollection([OneConst, TwoConst, ThrConst, FouConst]).mosaic()
+print(FireRast)
+Map.addLayer(FireRast, {min:1, max:4}, 'FireRast')
+
+// Export.image.toAsset({
+//   image: FireRast,
+//   description: 'FireIdentity',
+//   assetId: 'FireIdentity',
+//   scale: 30,
+//   region: fires})
+
+// Export the image, specifying scale and region.
+Export.image.toDrive({
+  image: FireRast,
+  description: 'FireIdentity',
+  scale: 30,
+  region: fires.geometry()
+});

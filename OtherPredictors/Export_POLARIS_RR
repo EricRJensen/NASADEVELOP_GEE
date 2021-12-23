@@ -1,0 +1,95 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var BD_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/BD_00_05"),
+    BD_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/BD_05_15"),
+    BD_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/BD_15_30"),
+    BD_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/BD_30_60"),
+    Clay_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Clay_00_05"),
+    Clay_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Clay_05_15"),
+    Clay_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Clay_15_30"),
+    Clay_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Clay_30_60"),
+    OM_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/OM_00_05"),
+    OM_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/OM_05_15"),
+    OM_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/OM_15_30"),
+    OM_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/OM_30_60"),
+    Sand_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Sand_00_05"),
+    Sand_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Sand_05_15"),
+    Sand_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Sand_15_30"),
+    Sand_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Sand_30_60"),
+    Silt_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Silt_00_05"),
+    Silt_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Silt_05_15"),
+    Silt_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Silt_15_30"),
+    Silt_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/Silt_30_60"),
+    ThetaR_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaR_00_05"),
+    ThetaR_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaR_05_15"),
+    ThetaR_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaR_15_30"),
+    ThetaR_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaR_30_60"),
+    ThetaS_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaS_00_05"),
+    ThetaS_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaS_05_15"),
+    ThetaS_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaS_15_30"),
+    ThetaS_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/ThetaS_30_60"),
+    PH_00_05 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/pH_00_05"),
+    PH_05_15 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/pH_05_15"),
+    PH_15_30 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/pH_15_30"),
+    PH_30_60 = ee.Image("users/ericjensen41_default/DEVELOP/POLARIS/pH_30_60"),
+    FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// ===============
+// Export_POLARIS_RR
+// ===============
+
+// Date Created: July 2020
+
+// Combine all POLARIS Soil property rasters into a single image and export a CSV of values extracted for 
+// all training points
+
+
+// Parameters
+// -------------
+// 1. All 32 POLARIS layers
+// 2. AllFieldPoints to extract values for
+// 3. Landsat_harm_reference grid for resampling by
+
+
+// Contact
+// ---------
+// Name(s): Eric Jensen
+// E-mail(s): ericjensen41@gmail.com
+
+
+
+// Visualize Organic Matter at the surface horizon
+Map.addLayer(OM_00_05, {min:0, max:2}, "Organic matter top horizon")
+
+// Create image collection from POLARIS images
+var POLARIS_IC = ee.ImageCollection([BD_00_05, BD_05_15, BD_15_30, BD_30_60, Clay_00_05, Clay_05_15, Clay_15_30, Clay_30_60,
+                OM_00_05, OM_05_15, OM_15_30, OM_30_60, Sand_00_05, Sand_05_15, Sand_15_30, Sand_30_60, Silt_00_05, Silt_05_15,
+                Silt_15_30, Silt_30_60, ThetaR_00_05, ThetaR_05_15, ThetaR_15_30, ThetaR_30_60, ThetaS_00_05, ThetaS_05_15,
+                ThetaS_15_30, ThetaS_30_60, PH_00_05, PH_05_15, PH_15_30, PH_30_60])
+
+// Convert image collection to multi-band image, rename bands
+var POLARIS_I = POLARIS_IC.toBands().rename(['BD_00_05', 'BD_05_15', 'BD_15_30', 'BD_30_60', 'Clay_00_05', 'Clay_05_15', 'Clay_15_30', 'Clay_30_60',
+                'OM_00_05', 'OM_05_15', 'OM_15_30', 'OM_30_60', 'Sand_00_05', 'Sand_05_15', 'Sand_15_30', 'Sand_30_60', 'Silt_00_05', 'Silt_05_15',
+                'Silt_15_30', 'Silt_30_60', 'ThetaR_00_05', 'ThetaR_05_15', 'ThetaR_15_30', 'ThetaR_30_60', 'ThetaS_00_05', 'ThetaS_05_15',
+                'ThetaS_15_30', 'ThetaS_30_60', 'PH_00_05', 'PH_05_15', 'PH_15_30', 'PH_30_60'])
+                
+// Reproject topographic image
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of severity image
+var POLARIS_I = POLARIS_I.resample().reproject(LS_proj)
+
+
+// Calculate zonal statistics for AIM plots
+var POLARIS_rr = POLARIS_I.reduceRegions({
+  collection: FieldPoints,
+  reducer: ee.Reducer.mean(),
+  scale: 30
+})
+
+
+// ----- Export the reduceRegions FeatureCollection to a csv
+Export.table.toDrive({
+  collection: POLARIS_rr,
+  description:'Soil_rr',
+  fileFormat: 'csv'
+});

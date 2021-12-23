@@ -1,0 +1,328 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var SAR = ee.ImageCollection("COPERNICUS/S1_GRD"),
+    Plant1 = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/PlantingSites/BC_NR_Merge_Drawn"),
+    Plant2 = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/PlantingSites/Buff_Creek_14_Merge"),
+    Plant3 = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/PlantingSites/Buff_Creek_FY13_Merge"),
+    Plant4 = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/PlantingSites/CheesmanTreePlanting_2003-2012"),
+    Plant5 = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/PlantingSites/Hayman_Tree_Planting_053013"),
+    fires = ee.FeatureCollection("users/zackrwerner/new_perimeters"),
+    PALSAR = ee.ImageCollection("JAXA/ALOS/PALSAR/YEARLY/SAR"),
+    FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+//=========================================================
+// SAR differenced images 
+//=========================================================
+// Date Created: 07 July 2020
+
+// Process Sentinel-1 C-band SAR and create growing season annual composites.
+// for years of interest. Process PALSAR L-band and apply smoothing function to 
+// both sources. Calculate differenced images and extract for fire perimeters
+// from both sources. Visualize, reproject and export differenced images
+// as .raster to Drive
+
+// Parameters
+//-------------
+// Planting polygons and Chamber points located in Colorado Node RMD assets folder, 
+// pathways will need to be updated. 
+//
+//Contact
+//---------
+// Name: Eric Jensen
+// E-mail:  ericjensen41@gmail,com
+
+
+
+// ----------------- Preprocess Data -------------------------------------
+// -----------------------------------------------------------------------
+
+//  ------------- Prepare polygons for plotting and analysis
+var plantings = Plant1.merge(Plant2).merge(Plant3).merge(Plant4).merge(Plant5)
+
+// Select Hayman fire as the ROI
+// var hayman = fires.filterMetadata('Fire_Name', 'equals', 'HAYMAN');
+// var roi = hayman.first().geometry().buffer(2000)
+var roi = fires.geometry().buffer(2000)
+var roi_nobuf = fires.geometry()
+
+// -------------- Process Sentinel-1 C-band SAR Ground Range Collection ---------------------
+// VH; log scale; descending 
+var collectionVH = SAR.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VH'))
+.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))
+.filterMetadata('resolution_meters', 'equals' , 10)
+.filterBounds(roi)
+.select('VH');
+
+// VH; log scale; descending
+var collectionVV = SAR.filter(ee.Filter.eq('instrumentMode', 'IW'))
+.filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
+.filter(ee.Filter.eq('orbitProperties_pass', 'ASCENDING'))
+.filterMetadata('resolution_meters', 'equals' , 10)
+.filterBounds(roi)
+.select('VV');
+
+// Create growing season annual composites
+// Growing season filter (April-September) and apply to VV and VH data
+var GrowSeasF = ee.Filter.calendarRange(5, 9, 'month')
+var VHGrowSeas = collectionVH.filter(GrowSeasF)
+var VVGrowSeas = collectionVV.filter(GrowSeasF)
+
+// Create year list for Sentinel SAR to iterate over
+var YearList = ee.List.sequence(2016,2019,1)
+
+// Create annual growing season median composites for each year in the YearList
+// VV composites
+var VVComposites = ee.ImageCollection(YearList.map(function(year){
+  var YearNum = ee.Number(year)
+  var YearCol = VVGrowSeas.filterDate(ee.String(YearNum.toInt()).cat('-01-01'), ee.String(YearNum.toInt()).cat('-12-01'));
+  var YearMedian = YearCol.reduce(ee.Reducer.median());
+  // var yearConstant = ee.Image([year_num]).rename(ee.String('YearConstant')).toFloat()
+  var YearImg = YearMedian.clip(roi)
+  return YearImg.set({
+    'year': year});
+}));
+
+// VH composites
+var VHComposites = ee.ImageCollection(YearList.map(function(year){
+  var YearNum = ee.Number(year)
+  var YearCol = VHGrowSeas.filterDate(ee.String(YearNum.toInt()).cat('-01-01'), ee.String(YearNum.toInt()).cat('-12-01'));
+  var YearMedian = YearCol.reduce(ee.Reducer.median());
+  // var yearConstant = ee.Image([year_num]).rename(ee.String('YearConstant')).toFloat()
+  var YearImg = YearMedian.clip(roi)
+  return YearImg.set({
+    'year': year});
+}));
+
+//  Apply smoothing function to Sentinel
+var SMOOTHING_RADIUS = 50;
+var apply_smoothing = function(img){
+  var image = ee.Image(img)
+  var year = image.get('year')
+  return(image.focal_mean(SMOOTHING_RADIUS,'circle','meters').set({
+    'year': year}))
+}
+
+var VVComposites = VVComposites.map(apply_smoothing)
+var VHComposites = VHComposites.map(apply_smoothing)
+
+
+// -------------- Process PALSAR L-band SAR -------------------------------
+//  Apply smoothing function to Sentinel
+var SMOOTHING_RADIUS = 100;
+var apply_smoothing_palsar = function(img){
+  var image = ee.Image(img)
+  var date = ee.Number(image.get('system:index'))
+  return(image.focal_mean(SMOOTHING_RADIUS,'circle','meters').set({
+    'year': date}))
+}
+
+//  Apply smoothing function to PALSAR
+var PALSAR = PALSAR.map(apply_smoothing_palsar)
+
+
+
+
+// ----------------- Calculate differenced images ------------------------
+// -----------------------------------------------------------------------
+
+//  -------- Sentinel: Differenced image for VH between 2015 and 2020 ----
+
+// Get images for 2016 and 2019 to difference by for VV and VH and difference the images
+var VH_2016 = VHComposites.first()
+var VH_2019 = VHComposites.filterMetadata('year', 'equals', 2019).first()
+var VH_diff = VH_2019.subtract(VH_2016)
+
+// Create three histograms for all pixels, planted and unplanted
+// Planted image
+var VH_diff_planted = VH_diff.clip(plantings)
+
+// Unplanted image
+var maskInside = function(image, geometry) {
+  var mask = ee.Image.constant(1).clip(geometry).mask().not()
+  return image.updateMask(mask)
+}
+var VH_diff_unplanted = maskInside(VH_diff, plantings).clip(roi_nobuf)
+
+// Print the charts
+// Visualization parameters for charts
+  var options = {
+    title: 'Sentinel',
+    hAxis: {
+      viewWindowMode: 'explicit',
+      viewWindow: {
+        min:-7,
+        max: 2.5    }}};
+        
+//print(ui.Chart.image.histogram({image:VH_diff.clip(roi_nobuf), region:roi_nobuf, scale:300}).setOptions(options), "Sentinel_AllPixels");
+//print(ui.Chart.image.histogram({image:VH_diff_planted, region:roi_nobuf, scale:300}).setOptions(options), "Sentinel_Planted");
+//print(ui.Chart.image.histogram({image:VH_diff_unplanted, region:roi_nobuf, scale:300}).setOptions(options), "Sentinel_Unplanted");
+
+// Get mean and standard deviations for All pixels, planted, and unplanted
+var reducers = ee.Reducer.mean().combine({
+  reducer2: ee.Reducer.stdDev(),
+  sharedInputs:true});
+  
+var allPixelsStats = VH_diff.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+var unplantedStats = VH_diff_unplanted.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+var plantedStats = VH_diff_planted.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+// Print the statistics
+//print(allPixelsStats, 'Sentinel_allPixelsStats')
+//print(unplantedStats, 'Sentinel_unplantedStats')
+//print(plantedStats, 'Sentinel_plantedStats')
+
+
+
+
+// ------------------------ PALSAR data charts -----------------------------------
+
+// Get oldest and newest image and clip to fire boundary
+var PALSAR_2007 = PALSAR.filterMetadata('year', 'equals', '2007').first().clip(roi)
+var PALSAR_2017 = PALSAR.filterMetadata('year', 'equals', '2017').first().clip(roi)
+var PALSAR_HV_diff = PALSAR_2017.select('HV').subtract(PALSAR_2007.select('HV'))
+
+// Create three histograms for all pixels, planted and unplanted
+// Planted image
+var PALSAR_HV_diff_planted = PALSAR_HV_diff.clip(plantings)
+
+// Unplanted image
+var maskInside = function(image, geometry) {
+  var mask = ee.Image.constant(1).clip(geometry).mask().not()
+  return image.updateMask(mask)
+}
+var PALSAR_HV_diff_unplanted = maskInside(PALSAR_HV_diff, plantings).clip(roi_nobuf)
+
+// Print the charts
+// Visualization parameters for charts
+    var options = {
+    title: 'PALSAR',
+    hAxis: {
+      viewWindowMode: 'explicit',
+      viewWindow: {
+        min:-1500,
+        max: 900  }}};
+//print(ui.Chart.image.histogram({image:PALSAR_HV_diff.clip(roi_nobuf), region:roi_nobuf, scale:300}).setOptions(options), "PALSAR_AllPixels");
+//print(ui.Chart.image.histogram({image:PALSAR_HV_diff_planted, region:roi_nobuf, scale:300}).setOptions(options), "PALSAR_Planted");
+//print(ui.Chart.image.histogram({image:PALSAR_HV_diff_unplanted, region:roi_nobuf, scale:300}).setOptions(options), "PALSAR_Unplanted");
+
+// Get mean and standard deviations for All pixels, planted, and unplanted
+var reducers = ee.Reducer.mean().combine({
+  reducer2: ee.Reducer.stdDev(),
+  sharedInputs:true
+});
+var PALSAR_allPixelsStats = PALSAR_HV_diff.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+var PALSAR_unplantedStats = PALSAR_HV_diff.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+var PALSAR_plantedStats = PALSAR_HV_diff.clip(roi_nobuf).reduceRegion({reducer: reducers,geometry: roi,scale: 10, maxPixels:1e13});
+// Print the statistics
+//print(PALSAR_allPixelsStats, 'PALSAR_allPixelsStats')
+//print(PALSAR_unplantedStats, 'PALSAR_unplantedStats')
+//print(PALSAR_plantedStats, 'PALSAR_plantedStats')
+
+// Add 2017 bands to image to extract by for PALSAR and Sentinel
+var PALSAR_2017 = PALSAR_2017.select('HV')
+var Sentinel_2017 = VHComposites.filterMetadata('year', 'equals', 2017).first()
+
+
+// ------------- Extract values of differenced images for Chambers points for PALSAR and Sentinel -----------------
+// Combine PALSAR differenced image and Sentinel differenced image
+var SAR_img = VH_diff
+                .addBands(PALSAR_HV_diff)
+                .addBands(PALSAR_2017)
+                .addBands(Sentinel_2017)
+                .rename(['SentinelSAR_diff', 'PALSAR_diff', 'PALSAR_2017', 'SentinelSAR_2017'])
+                
+print(SAR_img)
+
+// Reproject SAR image
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of Landsat image
+var SAR_img = SAR_img.resample().reproject(LS_proj)
+
+var namelist = SAR_img.bandNames().getInfo();
+
+print(namelist,'namelist');
+
+//Map.addLayer(SAR_img.select(namelist[0]),{},'MapTest')
+
+
+for (var i = 0; i < 4; i++) {
+  // Get image
+  var img = SAR_img.select(namelist[i]).clip(fires);
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i],
+      scale: 30,
+      region: fires});}
+
+stop();
+
+var FieldPoints_RR = SAR_img.reduceRegions({
+  collection: FieldPoints, 
+  reducer: ee.Reducer.mean(),
+  scale: 1,
+  tileScale:16
+  })
+
+print(FieldPoints_RR)
+// Export Field data to Google Drive as CSV
+Export.table.toDrive({
+  collection: FieldPoints_RR,
+  description:'SAR_RR',
+  fileFormat: 'CSV'
+});
+
+
+
+
+// // ------------------ Visualize map images -------------------------------------
+// --------------------------------------------------------------------------------
+
+// ------------------- Visualize the differenced images ---------------------------
+// Calculate the 5th and 95th percentile values for the image for plotting for each image
+var Spercentiles = VH_diff.reduceRegion({reducer: ee.Reducer.percentile([5,95]) ,geometry: roi, scale: 10, maxPixels:1e13});
+var Cpercentiles = PALSAR_HV_diff.reduceRegion({reducer: ee.Reducer.percentile([5,95]) ,geometry: roi, scale: 25, maxPixels: 1e13});
+
+// Map the differenced images for Sentinel
+Map.addLayer(VH_diff.clip(roi_nobuf), {min: -3.2, max: -0.4}, 'Sentinel_VHdiff_all',false)
+Map.addLayer(VH_diff_unplanted, {min: -3.2, max: -0.4}, 'Sentinel_VHdiff_unplanted',false)
+Map.addLayer(VH_diff_planted, {min: -3.2, max: -0.4}, 'Sentinel_VHdiff_planted',false)
+
+// Map the differenced images for PALSAR
+Map.addLayer(PALSAR_HV_diff.clip(roi_nobuf), {min: -1119, max: 222}, 'PALSAR_HV_diff_all',false)
+Map.addLayer(PALSAR_HV_diff_unplanted, {min: -1119, max: 222}, 'PALSAR_HV_diff_unplanted',false)
+Map.addLayer(PALSAR_HV_diff_planted, {min: -1119, max: 222}, 'PALSAR_HV_diff_planted',false)
+
+// Plot a general SAR image
+
+// ------------------------ Visualize tree plantings ------------------------------------
+var empty = ee.Image().byte();
+var plantings_outline = empty.paint({
+  featureCollection: plantings,
+  color: 'green',
+  width: 2
+});
+Map.addLayer(plantings_outline, {color: 'green'}, 'plantings')
+
+// Visualize the fires
+var hayman_outline = empty.paint({
+  featureCollection: fires,
+  color: 'green',
+  width: 2
+});
+Map.addLayer(hayman_outline, {}, 'fires')
+
+
+// Export images for predictive mapping
+var SAR_forExport = SAR_img.select('PALSAR_2017').clip(fires)
+//print(SAR_forExport)
+
+var hayman = fires.filterMetadata('Fire_Name', 'equals', 'HAYMAN').first().geometry()
+
+Export.image.toDrive({
+  image: SAR_forExport,
+  description: 'SAR_image',
+  scale: 30,
+  region: hayman
+});
+  

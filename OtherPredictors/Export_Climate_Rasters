@@ -1,0 +1,145 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var gridmet = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET"),
+    prism = ee.ImageCollection("OREGONSTATE/PRISM/AN81d"),
+    gldas = ee.ImageCollection("NASA/GLDAS/V20/NOAH/G025/T3H");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+/* This script gets temperature, vpd and soil moisture data as annual 
+composites for each fire of interest. Then the data is resampled to 30-m and
+the program exports the rasters to google drive as a .tif file.This script 
+was written by Zackary Werner and Eric Jensen as part of the Rocky Mountain Fire
+reserach group for the Summer 2020 DEVELOP term at the CO Node in Ft. Collins, CO.
+*/
+
+var fires = ee.FeatureCollection("users/zackrwerner/new_perimeters");
+
+var climate_red = function(fire_caps){
+      
+      //change fire name for each fire
+      var fire = fires.filterMetadata('Fire_Name', 'equals', fire_caps);
+      
+      //var fire_buff = fire.first().geometry().buffer(200);
+      
+      var FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints")
+                        .filterBounds(fire);
+      
+      
+      //extract climate variables of interest from their respective soources
+      var vpd = gridmet.select('vpd').filterBounds(fire);
+      var temp = prism.select('tmax').filterBounds(fire);
+      var sm = gldas.select('SoilMoi0_10cm_inst').filterBounds(fire);
+      
+      //get year of burn
+      var fire_yr = ee.Number(fire.first().get('Year'));
+      
+      // Define time period of interest
+      // yire year to 2017 (occular sampling year)
+      var yearList = ee.List.sequence(fire_yr.subtract(0), 2017, 1);
+      
+      // hottest month
+      var TP1_str = '-07-01';
+      var TP1_end = '-07-31';
+      
+      // summer vpd
+      var TP2_str = '-06-01';
+      var TP2_end = '-08-31';
+      
+      // driest month of growing season (May - August)
+      var TP3_str = '-06-01';
+      var TP3_end = '-06-30';
+      
+      // Create annual composite of max temp. of hottest month
+      var temp_ac = ee.ImageCollection(yearList.map(function(year){
+        var year_num = ee.Number(year)
+        var startdate = TP1_str
+        var enddate = TP1_end
+        var yearCol = temp.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate));
+        var yearMax = yearCol.reduce(ee.Reducer.max());
+        var reduced = yearMax.clip(fire)
+        return reduced.set({
+          'year': year});
+      }));
+      
+      // Create annual composite of summer mean vapor pressure deficit
+      var vpd_ac = ee.ImageCollection(yearList.map(function(year){
+        var year_num = ee.Number(year)
+        var startdate = TP2_str
+        var enddate = TP2_end
+        var yearCol = vpd.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate));
+        var yearMean = yearCol.reduce(ee.Reducer.mean());
+        var reduced = yearMean.clip(fire)
+        return reduced.set({
+          'year': year});
+      }));
+      
+      // Create annual composite of soil moisture of driest month of growing season (May - August)
+      var sm_ac = ee.ImageCollection(yearList.map(function(year){
+        var year_num = ee.Number(year)
+        var startdate = TP3_str
+        var enddate = TP3_end
+        var yearCol = sm.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate));
+        var yearMean = yearCol.reduce(ee.Reducer.mean());
+        var reduced = yearMean.clip(fire)
+        return reduced.set({
+          'year': year});
+      }));
+      
+      //averages of all time considered for each fire
+      
+      var temp_avg = temp_ac.filterBounds(fire).reduce(ee.Reducer.mean());
+      
+      var vpd_avg = vpd_ac.filterBounds(fire).reduce(ee.Reducer.mean());
+      
+      var sm_avg = sm_ac.filterBounds(fire).reduce(ee.Reducer.mean());
+      
+      //band names:
+      //tmax_max_mean, vpd_mean_mean, SoilMoi0_10cm_inst_mean_mean
+      var all = temp_avg.addBands(vpd_avg).addBands(sm_avg);
+      
+      // Reproject topographic image
+      var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+      var LS_proj = LS_ref.projection() // get projection of landsat harmonized image
+      var all_resample = all.reproject(LS_proj) //reproject defaults to nn
+      
+      /*
+      var all_red = all_resample.reduceRegions({collection:FieldPoints, 
+                                       reducer: ee.Reducer.mean(),
+                                       scale:30
+      });
+*/
+      return(all_resample)}
+
+var Hayman = climate_red('HAYMAN')
+//print(Hayman, 'Hayman')
+
+var HighMeadow = climate_red('HIGH MEADOWS')
+//print(HighMeadow, 'High Meadow')
+
+var Bobcat = climate_red('BOBCAT')
+//print(Bobcat, 'Bobcat')
+
+var BCreek = climate_red('BUFFALO CREEK')
+//print(BCreek, 'BCreek')
+
+var fire_mosaic = ee.ImageCollection([Hayman,HighMeadow,Bobcat,BCreek]).mosaic();
+//print(fire_mosaic,'fire mosaic');
+
+var namelist = fire_mosaic.bandNames().getInfo();
+
+print(namelist,'namelist');
+
+print(fire_mosaic.select(namelist[2]),'test2');
+
+Map.addLayer(fire_mosaic.clip(fires).select(namelist[2]),{},"sm_viz");
+
+for (var i = 0; i < 3; i++) {
+  // Get image
+  var img = fire_mosaic.select(namelist[i]).clip(fires);
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i],
+      scale: 30,
+      region: fires});}
+
+

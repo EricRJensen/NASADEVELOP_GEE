@@ -1,0 +1,86 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// ===============
+// Export_Topographic_Rasters
+// ===============
+
+// Date Created: July 2020
+
+// Export rasters of all topographic layers.
+
+// Parameters
+// -------------
+// 1. Fire perimeters
+
+
+// Contact
+// ---------
+// Name(s): Eric Jensen
+// E-mail(s): ericjensen41@gmail.com
+
+
+
+// Fires layer to clip by
+var fires = ee.FeatureCollection("users/zackrwerner/new_perimeters")
+
+// ----------- GEE code for topographic indices: -----------
+// Latitude and longitude
+var latlong = ee.Image.pixelLonLat(); 
+
+// // Topography
+var elevation = ee.Image('USGS/NED').rename('elev').resample('bicubic')
+var aspect = ee.Terrain.aspect(elevation).multiply(Math.PI/180).rename('aspect') // linear aspect
+var northness = aspect.cos().rename('northness')
+var eastness = aspect.sin().rename('eastness')
+var slope = ee.Terrain.slope(elevation)
+
+// Stage 1975: slope% * cos or sin of aspect
+var slope_pct = slope.expression("tan(b(0) * pi/180)", {"pi": Math.PI}).rename("slope_pct")
+var slope_pct = slope_pct.where(slope_pct.gt(1), 1.01)
+
+var slope_east = slope_pct.multiply(eastness).rename('slope_east')
+var slope_north = slope_pct.multiply(northness).rename('slope_north').toFloat()
+
+// TRASP - Roberts and Cooper 1989
+var trasp = aspect.expression("(1-(cos(b(0)-d))) / 2", {"d":(30 * Math.PI/180)}).rename("trasp")
+
+// Indices from Theobald and CSP
+var mtpi = ee.Image('CSP/ERGo/1_0/US/mTPI').rename('mtpi').resample('bicubic')
+var chili = ee.Image('CSP/ERGo/1_0/US/CHILI').rename('chili').resample('bicubic')
+var tdiv = ee.Image('CSP/ERGo/1_0/US/topoDiversity').rename('tdiv').resample('bicubic')
+var physd = ee.Image('CSP/ERGo/1_0/US/physioDiversity').rename('physd').resample('bicubic')
+var landform = ee.Image('CSP/ERGo/1_0/US/landforms').rename('landform').resample().toFloat()
+
+// add topographic bands to the image
+var topo = ee.Image.cat(elevation, aspect, northness, eastness, slope, slope_pct, slope_east, slope_north, trasp, chili, tdiv, mtpi, physd, landform).clip(fires)
+
+// Reproject topographic image
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of severity image
+var topo = topo.resample().reproject(LS_proj)
+
+var namelist = topo.bandNames().getInfo();
+
+print(namelist,'namelist');
+
+//print(topo.select(namelist[0]),'test');
+//print(topo.select(namelist[1]),'test');
+//print(topo.select(namelist[13]),'test');
+
+for (var i = 0; i < 14; i++) {
+  // Get image
+  var img = topo.select(namelist[i]);
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i],
+      scale: 30,
+      region: fires});}
+
+stop();
+
+
+  

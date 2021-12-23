@@ -1,0 +1,82 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var FieldPoints = ee.FeatureCollection("users/ericjensen41_default/DEVELOP/TrainingPoints/AllFieldPoints"),
+    Class = ee.Image("users/ericjensen41_default/DEVELOP/MTBS/MTBS_class"),
+    dnbr = ee.Image("users/ericjensen41_default/DEVELOP/MTBS/MTBS_dnbr"),
+    fires = ee.FeatureCollection("users/zackrwerner/new_perimeters"),
+    Distance = ee.Image("users/ericjensen41_default/DEVELOP/MTBS/MTBS_DistancetoLowUn"),
+    PatchSize = ee.Image("users/ericjensen41_default/DEVELOP/MTBS/MTBS_PatchSizeModHi"),
+    Fire = ee.Image("users/ericjensen41_default/DEVELOP/MTBS/FireIdentity");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// ===============
+// Export_SeverityLandscape_Rasters
+// ===============
+
+// Date Created: July 2020
+
+// Export rasters of years since fire, distance to low and unburned pixel, patch size of moderate 
+// and high severity fires, fire identity, severity class, and dNBR.
+
+
+// Parameters
+// -------------
+// 1. AllFieldPoints to extract values for
+// 2. FireIdentity
+// 3. MTBS_DistancetoLowUn
+// 4. MTBS_PatchSizeModHi
+// 5. MTBS_class
+// 6. MTBS_dnbr
+// 7. Landsat_harm_reference grid for resampling by
+
+
+// Contact
+// ---------
+// Name(s): Eric Jensen
+// E-mail(s): ericjensen41@gmail.com
+
+
+
+// Calculate years since fire for each fire and then mosaic into single image
+var yearssincefire = function(fire_caps){
+      var fire = fires.filterMetadata('Fire_Name', 'equals', fire_caps);
+      var fire_yr = ee.Number(fire.first().get('Year'))
+      var years_since_num = ee.Number(2017).subtract(fire_yr)
+      var yearssince = ee.Image.constant(years_since_num).toFloat().clip(fire)
+      return(yearssince)}
+var haym = yearssincefire('HAYMAN')
+var bcrk = yearssincefire('BUFFALO CREEK')
+var bobc = yearssincefire('BOBCAT')
+var hime = yearssincefire('HIGH MEADOWS')
+var years = ee.ImageCollection([haym,bcrk,bobc,hime]).mosaic()
+//Map.addLayer(years, {min:15, max:21},'YearsSinceFire')
+
+var severity = Class.addBands(dnbr).addBands(years).addBands(Distance).addBands(PatchSize).addBands(Fire)
+                    .rename(['SevClass', 'dNBR', 'YearsSinceFire', 'DistancetoLowUn', 'ModHiPatchSize', 'Fire'])
+print(severity)
+
+// Reproject topographic image
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of landsat image
+var severity = severity.reproject(LS_proj)
+
+var namelist = severity.bandNames().getInfo();
+
+print(namelist,'namelist');
+
+//print(severity.select(namelist[0]),'test0');
+//print(severity.select(namelist[1]),'test1');
+//print(severity.select(namelist[6]),'test6');
+
+//Map.addLayer(severity.select(namelist[0]), {},'Map');
+
+for (var i = 0; i < 6; i++) {
+  // Get image
+  var img = severity.select(namelist[i]);
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i],
+      scale: 30,
+      region: fires});}
+
